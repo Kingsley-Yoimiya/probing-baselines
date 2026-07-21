@@ -1,0 +1,52 @@
+# Makefile.metax — build the Greyhound detection-core probe for MetaX (MCCL).
+#
+# Produces libmcclprobe.so, an LD_PRELOAD interposer that exports mccl* symbols
+# (the collective entry points libtorch_cuda.so actually calls on MetaX) and
+# forwards them to the real libmccl.so while logging each call into a shared
+# memory ring buffer for the Python detection core.
+#
+# Compiler: cucc (the MACA cu-bridge wrapper). It resolves <cuda_runtime.h> and
+# <nccl.h> to the cu-bridge aliases over MACA/MCCL, and links the MACA runtime.
+#
+# Usage (on a MetaX pod):
+#   make -f Makefile.metax          # build libmcclprobe.so
+#   make -f Makefile.metax clean
+
+CUCC        ?= /opt/maca/tools/cu-bridge/bin/cucc
+MACA_PATH   ?= /opt/maca
+
+# Detection-core build switch: strips redis/controller/mitigation, keeps the
+# hook -> shm ring buffer -> Python analyzer path.
+DEFINES     := -DGREYHOUND_DETECTION_ONLY -DBOOST_LOG_DYN_LINK
+
+INCLUDES    := -I$(MACA_PATH)/include -I.
+
+CXXFLAGS    := -std=c++17 -O2 -fPIC -g $(DEFINES) $(INCLUDES)
+
+# Boost: log (+setup) for logging, thread/system/filesystem as log deps,
+# pthread/rt for interprocess shared memory + mutex.
+BOOST_LIBS  := -lboost_log -lboost_log_setup -lboost_thread -lboost_system \
+               -lboost_filesystem -lpthread -lrt
+# MCCL is resolved at runtime via dlopen; -ldl for dlopen/dlsym.
+LDLIBS      := $(BOOST_LIBS) -ldl
+
+# Detection-core sources.  Excluded vs. the original build:
+#   event_handler.cpp  (cpp_redis control plane + p2p/gemm micro-benchmarks)
+#   matmul.cu          (GEMM micro-benchmark, mitigation-only)
+SRCS        := ncclprobe.cpp shm_storage.cpp global_status.cpp comm.cpp shm_topo.cpp
+OBJS        := $(SRCS:.cpp=.o)
+
+TARGET      := libmcclprobe.so
+
+.PHONY: all clean
+
+all: $(TARGET)
+
+$(TARGET): $(OBJS)
+	$(CUCC) $(CXXFLAGS) -shared -o $@ $(OBJS) $(LDLIBS)
+
+%.o: %.cpp
+	$(CUCC) $(CXXFLAGS) -c $< -o $@
+
+clean:
+	rm -f $(OBJS) $(TARGET)

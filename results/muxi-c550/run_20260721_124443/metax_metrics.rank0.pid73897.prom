@@ -1,0 +1,29 @@
+# XPUTimer MetaX backend metrics (Prometheus text exposition)
+# device=MetaX C550-PL pid=73897
+xpu_timer_common_kernel_count{name="kern_0x7fc5183a3820",type="kernel"} 20
+xpu_timer_common_kernel_avg_us{name="kern_0x7fc5183a3820",type="kernel"} 149.299
+xpu_timer_common_kernel_max_us{name="kern_0x7fc5183a3820",type="kernel"} 611.584
+xpu_timer_common_kernel_hang{name="kern_0x7fc5183a3820",type="kernel"} 1
+xpu_timer_common_kernel_slow{name="kern_0x7fc5183a3820",type="kernel"} 0
+xpu_timer_common_kernel_count{name="coll:mcclAllGather",type="coll"} 21
+xpu_timer_common_kernel_avg_us{name="coll:mcclAllGather",type="coll"} 0
+xpu_timer_common_kernel_max_us{name="coll:mcclAllGather",type="coll"} 0
+xpu_timer_common_kernel_hang{name="coll:mcclAllGather",type="coll"} 0
+xpu_timer_common_kernel_slow{name="coll:mcclAllGather",type="coll"} 0
+xpu_timer_common_kernel_count{name="coll:mcclAllReduce",type="coll"} 21
+xpu_timer_common_kernel_avg_us{name="coll:mcclAllReduce",type="coll"} 0
+xpu_timer_common_kernel_max_us{name="coll:mcclAllReduce",type="coll"} 0
+xpu_timer_common_kernel_hang{name="coll:mcclAllReduce",type="coll"} 0
+xpu_timer_common_kernel_slow{name="coll:mcclAllReduce",type="coll"} 0
+xpu_timer_common_kernel_count{name="kern_0x7fc518348fe0",type="kernel"} 20
+xpu_timer_common_kernel_avg_us{name="kern_0x7fc518348fe0",type="kernel"} 942.336
+xpu_timer_common_kernel_max_us{name="kern_0x7fc518348fe0",type="kernel"} 16102.1
+xpu_timer_common_kernel_hang{name="kern_0x7fc518348fe0",type="kernel"} 1
+xpu_timer_common_kernel_slow{name="kern_0x7fc518348fe0",type="kernel"} 0
+xpu_timer_common_kernel_count{name="kern_0x7fc5a2526a80",type="kernel"} 1
+xpu_timer_common_kernel_avg_us{name="kern_0x7fc5a2526a80",type="kernel"} 2984.45
+xpu_timer_common_kernel_max_us{name="kern_0x7fc5a2526a80",type="kernel"} 2984.45
+xpu_timer_common_kernel_hang{name="kern_0x7fc5a2526a80",type="kernel"} 0
+xpu_timer_common_kernel_slow{name="kern_0x7fc5a2526a80",type="kernel"} 0
+xpu_timer_common_coll_bytes_total{name="mcclAllGather"} 88080384
+xpu_timer_common_coll_bytes_total{name="mcclAllReduce"} 88080384

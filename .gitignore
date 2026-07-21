@@ -28,3 +28,8 @@ config-vc-*
 .DS_Store
 *.log.tmp
 scratch/
+
+# 上游 clone 的大体量冗余(非适配相关)
+xputimer-metax/docs/
+xputimer-metax/go/
+**/*.pdf

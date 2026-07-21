@@ -1,0 +1,21 @@
+W0721 12:46:18.670000 74654 site-packages/torch/distributed/run.py:792] 
+W0721 12:46:18.670000 74654 site-packages/torch/distributed/run.py:792] *****************************************
+W0721 12:46:18.670000 74654 site-packages/torch/distributed/run.py:792] Setting OMP_NUM_THREADS environment variable for each process to be 1 in default, to avoid your system being overloaded, please further tune the variable for optimal performance in your application as needed. 
+W0721 12:46:18.670000 74654 site-packages/torch/distributed/run.py:792] *****************************************
+[workload] world_size=4 size=4194304 iters=500 slow_after=250 slow_rank=2 slow_ms=15.0
+[workload] iter 50/500 elapsed=0.2s
+[workload] iter 100/500 elapsed=0.3s
+[workload] iter 150/500 elapsed=0.5s
+[workload] iter 200/500 elapsed=0.7s
+[workload] iter 250/500 elapsed=0.9s
+[workload] iter 300/500 elapsed=1.8s
+[workload] iter 350/500 elapsed=2.8s
+[workload] iter 400/500 elapsed=3.8s
+[workload] iter 450/500 elapsed=4.8s
+[workload] iter 500/500 elapsed=5.8s
+[workload] DONE 500 iters in 5.9s
+[workload] holding 25.0s for shm snapshot (run detect_runner.py now)
+Shutdown gracefully!
+Shutdown gracefully!
+Shutdown gracefully!
+Shutdown gracefully!

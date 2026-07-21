@@ -13,7 +13,11 @@
 
 ## 适配思路（关键前提）
 
-MCCL 大概率直接导出 `nccl*` 同名符号（MACA 是 cuda-alike 层），所以 hook 层可能**只需改 dlopen 的库路径**，不必改符号名。上机第一步 `nm -D libmccl.so | grep nccl` 确认。
+> **上机实测已修正初始假设**（详见 `results/xputimer-metax-log.md`）：
+> MCCL **不导出** `nccl*` 同名符号，而是用 **`mccl*`** 前缀；MACA runtime 用 **`mc*`** 前缀
+> （`mcLaunchKernel`/`mcEvent*`），不是 `cuda*` 同名。torch `2.6.0+metax` 直接链接 `mc*`/`mccl*` 裸符号。
+> 所以 hook 层要导出 `mc*`/`mccl*` 名（不是只改 dlopen 路径）。上机第一步用
+> `nm -D libmccl.so | grep -i mccl` 与 `nm -D libtorch_cuda.so | grep 'U mc'` 确认。
 
 ## 目录
 
