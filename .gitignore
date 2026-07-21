@@ -1,0 +1,30 @@
+# 编译产物
+build/
+*.o
+*.so
+*.a
+dist_bin/
+bazel-*
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# 大文件 / 镜像 / 数据
+*.tar
+*.tar.gz
+*.whl
+*.parquet
+*.ckpt
+*.pt
+
+# 密钥（绝不进仓）
+*.key
+*kubeconfig*
+config-vc-*
+*.pem
+
+# 本地临时
+.DS_Store
+*.log.tmp
+scratch/
