@@ -193,3 +193,52 @@ Probing 能检测的原因：它拆解 step 内部的 **compute time vs AllReduc
 3. **Case 覆盖**：27-case 中只验证了 3A/3B/8A/9A/9B/9C，其余需补
 4. **Probing 实际查询**：未在 live 训练中演示 SQL 查询检测（训练太快结束）
 5. **8A (GC stall)**：v3 中未做外部 GC 注入（之前的内部注入 v2 数据有效但有交互效应）
+
+---
+
+## Appendix: Extended Cases (v3m batch, 2-node × 8-gpu)
+
+### Summary Table (all 13 cases tested)
+
+| Case | Injection Type | Effective Slowdown | Status |
+|------|---------------|-------------------|--------|
+| **3A** GPU 算力 | External GPU cube sidecar | **+117%** | ✅ Effective |
+| **3B** HBM 带宽 | External GPU HBM sidecar | **+70%** | ✅ Effective |
+| **1B** 渐进 HBM | External GPU HBM ramp (0.1→0.9) | **+30%** | ✅ Effective |
+| 2B 动态 shape | External random-size GEMM | <5% | ❌ 需内部注入 |
+| 2C 编译尖刺 | External cache thrash | <5% | ❌ 需内部注入 |
+| 3C 多进程 GPU | 4 subprocess GEMM | <5% | ❌ GPU 时间片隔离 |
+| 5B PCIe 争用 | GPU↔CPU copy | NO_DATA | ❌ 部署缺失 |
+| 8A GC 压力 | External Python alloc+gc | NO_DATA | ❌ 部署缺失 |
+| 8B 内存泄漏 | Progressive leak | NO_DATA | ❌ 部署缺失 |
+| 8C 监控泄漏 | Thread+mem leak | NO_DATA | ❌ 部署缺失 |
+| 9A CPU stress | stress-ng --cpu | <2% | ❌ GPU-bound |
+| 9B IO stress | stress-ng --io | <4% | ❌ GPU-bound |
+| 9C 内存 BW | stress-ng --vm | <5% | ❌ GPU-bound |
+
+### Effective Cases: Timing Detail (R2+R3 mean)
+
+**Case 1B: 渐进 HBM 带宽衰减 (duty ramp 0.1→0.9)**
+
+| Config | R1 (ms) | R2 (ms) | R3 (ms) | Mean R2+R3 |
+|--------|---------|---------|---------|-----------|
+| C0 Baseline | 105.9 | 103.6 | 104.1 | 103.9 |
+| C1 Inject | 134.7 | 137.1 | 129.9 | **133.5** (+28%) |
+| C2 +Probing | 138.4 | 137.7 | 135.6 | **136.7** (+2.4% overhead) |
+| C3 +Greyhound | 140.5 | 135.1 | 131.0 | **133.1** (≈0% overhead) |
+| C4 +XPUTimer | 133.0 | 133.3 | 132.6 | **133.0** (≈0% overhead) |
+
+### Ineffective Cases: Why
+
+| Case | Reason for No Effect |
+|------|---------------------|
+| 2B (dynamic shape) | Sidecar GEMM in separate CUDA context; doesn't affect training's kernel dispatch |
+| 2C (compile spike) | Training doesn't use torch.compile; external cache clear has no effect |
+| 3C (multi-process) | MetaX C550 GPU time-slicing isolates processes (1 TIMEOUT in round 1) |
+| 9A/9B/9C | GPU-compute-bound training; host CPU/IO/memory not on critical path |
+
+### Note on Data Loss
+
+Job `muxi-test-1` was aborted at 2026-07-22 05:58 UTC (machines reclaimed). Per-rank JSONL data on pod local storage was lost. Only pipeline logs (avg_step_ms per phase) were saved to jump host before termination.
+
+Cases 5B/8A/8B/8C showed "NO_DATA" because `train_bench_clean.py` was not deployed to pods 35-66 (deployment oversight). These need re-running on new allocation.
