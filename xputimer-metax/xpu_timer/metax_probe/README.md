@@ -30,7 +30,7 @@
 
 | 文件 | 作用 |
 |---|---|
-| `xpu_timer_metax_hook.cc` | LD_PRELOAD 检测 hook。导出 `mcLaunchKernel` + 7 个 `mccl*`；event 计时 + 后台 poller + HANG/SLOW 判定 + Prometheus/JSONL 导出 |
+| `xpu_timer_metax_hook.cc` | LD_PRELOAD 检测 hook。导出 `mcLaunchKernel` + 17 个 `mccl*`（含 Ext/AllToAll）；event 计时 + 后台 poller + HANG/SLOW 判定 + Prometheus/JSONL 导出 |
 | `build_metax_hook.sh` | `g++ -std=c++17 -O2 -fPIC -shared -ldl -lpthread`（pod 内跑） |
 | `metax_selftest.py` | 单 GPU workload（matmul/elementwise）+ `--inject-hang` |
 | `metax_dist_test.py` | 2+ rank `torch.distributed`（allreduce/allgather）+ `--desync-rank` 掉队注入 |
@@ -49,6 +49,11 @@ LD_PRELOAD=./libxpu_timer_metax.so python metax_selftest.py --iters 100
 XPU_TIMER_HANG_TIMEOUT_MS=1500 XPU_TIMER_DUMP_DIR=/tmp/xpu_dist \
 LD_PRELOAD=./libxpu_timer_metax.so \
 torchrun --nproc_per_node=2 metax_dist_test.py --iters 60 --desync-rank 1 --desync-at 20
+
+# 4. MoE 常用 AllToAll 覆盖
+LD_PRELOAD=./libxpu_timer_metax.so \
+torchrun --nproc_per_node=2 metax_dist_test.py --iters 20 \
+  --exercise-alltoall --exercise-alltoallv
 ```
 
 产物：`$XPU_TIMER_DUMP_DIR/metax_metrics.rank<R>.pid<P>.prom`（Prometheus 文本）+ `metax_trace.*.jsonl`。
@@ -70,9 +75,14 @@ torchrun --nproc_per_node=2 metax_dist_test.py --iters 60 --desync-rank 1 --desy
 | XPUTimer 组件 | NVIDIA | MetaX | 状态 |
 |---|---|---|---|
 | kernel launch 拦截 | `cudaLaunchKernel` | `mcLaunchKernel` (RTLD_NEXT) | ✅ |
-| 集合通信拦截 | `nccl*` | `mccl*` (显式 dlopen libmccl) | ✅ |
+| 集合通信拦截 | `nccl*` | `mccl*` base/Ext + AllToAll(v) | ✅ |
 | event 计时 | `cudaEvent*` | `mcEvent*` (dlopen libmcruntime) | ✅ |
 | getDeviceName | `cudaGetDeviceProperties` | `mcGetDeviceProperties` | ✅ |
 | hang/slow 判定 | `GpuTimerManager::doHang` | 同逻辑复刻 | ✅ |
 | cuBLAS GEMM shape | `cublas*`/`cublasLt*` | `mcblas*` | ⚪ 桩过（GEMM kernel 仍被计时，缺 matmul label） |
 | comm 拓扑解析 | `parse_params` | MCCL comm 结构体 | ⚪ 桩过（集合通信按 kernel 计时 + API 元数据） |
+
+集合通信内部的 `mcLaunchKernel` 会继承当前 `mccl*` API 名，指标以
+`coll_kernel:mcclAllReduce` 等名称输出，因此 HANG/SLOW 不再只显示匿名
+`kern_0x...`。若 MCCL 将 launch 转移到内部线程，无法继承线程局部标签的
+kernel 仍按普通 kernel 记录。

@@ -52,4 +52,5 @@ torchrun --nproc_per_node="$NPROC" --nnodes=1 \
     --hold-sec "${HOLD_SEC:-0}" \
     2>&1 | tee "$LOGDIR/workload.log"
 
-echo "[run] workload finished; shm records ready for detect_runner.py"
+echo "[run] workload finished; shm has been released" \
+     "(set HOLD_SEC>0 and run detect_runner.py during the hold window)"

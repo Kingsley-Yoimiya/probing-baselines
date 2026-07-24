@@ -65,17 +65,30 @@ def read_shm_records(config):
 
     shm = shared_memory.SharedMemory("ncclRecord", create=False, size=shm_size)
     data = np.frombuffer(shm.buf, np.int64)
-    n_fields = int(data[0])
-    max_records = int(data[1])
-    num_records = int(data[2])
-    head = int(data[3])
-    buf = data[meta:]
+    try:
+        # A writer increments metadata[6] after every complete record. Retry if
+        # it changes while copying so a live snapshot cannot mix two ring states.
+        for _ in range(10):
+            event_before = int(data[6])
+            n_fields = int(data[0])
+            max_records = int(data[1])
+            num_records = int(data[2])
+            head = int(data[3])
+            buf = data[meta:]
 
-    recs = np.empty((num_records, n_fields), dtype=np.int64)
-    for i in range(num_records):
-        start = ((head + i) % max_records) * n_fields
-        recs[i] = buf[start: start + n_fields]
-    return recs
+            recs = np.empty((num_records, n_fields), dtype=np.int64)
+            for i in range(num_records):
+                start = ((head + i) % max_records) * n_fields
+                recs[i] = buf[start: start + n_fields]
+
+            event_after = int(data[6])
+            del buf
+            if event_before == event_after:
+                return recs
+        raise RuntimeError("shared-memory ring changed during 10 snapshot attempts")
+    finally:
+        del data
+        shm.close()
 
 
 def analyze(records, plot=False):

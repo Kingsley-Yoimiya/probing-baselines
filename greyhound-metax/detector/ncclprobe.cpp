@@ -124,13 +124,21 @@ ncclResult_t log_event(const void* buff1, const void* buff2, size_t count,
     call_time = g_status.time_since_initialize();
     cudaGetDevice(&dev_id);
     cudaDeviceGetPCIBusId(pcistr, PCI_STR_LEN, dev_id);
+    const auto comm_addr = reinterpret_cast<uint64_t>(comm);
+    for (const auto& known_comm : g_status.local_comms) {
+        if (known_comm.comm_addr == comm_addr) {
+            numdevs = known_comm.num_devices;
+            break;
+        }
+    }
 
     if (can_compress(g_status.last_call_id) && (!can_compress(number)))
     {
         // the previous call is, but the current is not
         // we should first add this compressed record to the buffer
         Record compressed_record(
-            (uint64_t)g_status.last_comm, g_status.repeated_call_num, g_status.accumulated_count,
+            (uint64_t)g_status.last_comm, (uint64_t)g_status.last_call_id,
+            g_status.accumulated_count,
             reinterpret_cast<uint64_t>(buff1), reinterpret_cast<uint64_t>(buff2),
             (uint64_t)(datatype), (uint64_t)(getpid()), (uint64_t)(call_time),
             (uint64_t)(dev_id), (uint64_t)(get_rank(DistEngine::auto_find)), aux,

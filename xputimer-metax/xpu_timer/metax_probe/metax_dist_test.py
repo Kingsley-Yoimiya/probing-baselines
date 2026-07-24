@@ -32,6 +32,10 @@ def main():
                     help="this rank will skip a collective, stalling the group")
     ap.add_argument("--desync-at", type=int, default=-1,
                     help="iteration at which the desync rank bails out")
+    ap.add_argument("--exercise-alltoall", action="store_true",
+                    help="also run all_to_all_single to cover MoE communication")
+    ap.add_argument("--exercise-alltoallv", action="store_true",
+                    help="also pass split arrays to cover mcclAllToAllv")
     args = ap.parse_args()
 
     rank = int(os.environ.get("RANK", "0"))
@@ -46,6 +50,8 @@ def main():
 
     x = torch.randn(args.size, device=dev, dtype=torch.float32)
     g = torch.empty(args.size * world, device=dev, dtype=torch.float32)
+    a2a_in = torch.arange(args.size, device=dev, dtype=torch.float32)
+    a2a_out = torch.empty_like(a2a_in)
 
     for i in range(args.iters):
         # If we're the designated desync rank, bail out of the collective at the
@@ -59,6 +65,16 @@ def main():
 
         dist.all_reduce(x)                      # mcclAllReduce
         dist.all_gather_into_tensor(g, x)       # mcclAllGather
+        if args.exercise_alltoall:
+            dist.all_to_all_single(a2a_out, a2a_in)  # mcclAllToAll
+        if args.exercise_alltoallv:
+            splits = [args.size // world] * world
+            dist.all_to_all_single(
+                a2a_out,
+                a2a_in,
+                output_split_sizes=splits,
+                input_split_sizes=splits,
+            )  # mcclAllToAllv
         if i % 20 == 0:
             torch.cuda.synchronize()
             if rank == 0:

@@ -14,12 +14,16 @@
 
 CUCC        ?= /opt/maca/tools/cu-bridge/bin/cucc
 MACA_PATH   ?= /opt/maca
+CUDA_PATH   ?= $(MACA_PATH)/tools/cu-bridge
+export MACA_PATH CUDA_PATH
 
 # Detection-core build switch: strips redis/controller/mitigation, keeps the
 # hook -> shm ring buffer -> Python analyzer path.
 DEFINES     := -DGREYHOUND_DETECTION_ONLY -DBOOST_LOG_DYN_LINK
 
-INCLUDES    := -I$(MACA_PATH)/include -I.
+# cucc does not add the host system include directory in a non-interactive
+# shell. Boost is installed under /usr/include on the C550 worker image.
+INCLUDES    := -I$(MACA_PATH)/include -I/usr/include -I.
 
 CXXFLAGS    := -std=c++17 -O2 -fPIC -g $(DEFINES) $(INCLUDES)
 

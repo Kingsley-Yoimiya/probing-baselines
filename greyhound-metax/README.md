@@ -1,6 +1,30 @@
 # Greyhound: Hunting Fail-Slows in Hybrid-Parallel Training at Scale  
 *Artifact Evaluation Guidelines for ATC'25 Paper #164*  
 
+## MetaX detection-core quick start
+
+The C550 detection-only build needs the host Boost headers/libraries and the
+Python change-point dependencies:
+
+```bash
+apt-get install -y libboost-log-dev libboost-thread-dev \
+  libboost-system-dev libboost-filesystem-dev
+pip install statsmodels Rbeast
+
+cd detector
+make -f Makefile.metax
+
+cd ../metax_eval
+NPROC=4 ITERS=300 HOLD_SEC=25 bash run_probe.sh
+# Run while the workload prints "holding ... for shm snapshot".
+python detect_runner.py --snapshot /tmp/greyhound-metax/run/snapshot.npy
+```
+
+`Makefile.metax` supplies the non-interactive `CUDA_PATH` and host include
+directory expected by the MetaX `cucc` wrapper. The shared-memory object is
+owned by the training processes and disappears when they exit, so the detector
+must snapshot it during `HOLD_SEC` or analyze a saved `.npy` file afterward.
+
 
 ## Testbed Environment  
 We provide an **AWS VM instance with 4 NVIDIA A10 GPUs** to reproduce key results from the paper, including:  
