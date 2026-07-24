@@ -177,6 +177,12 @@ MacaRt& rt() {
   return r;
 }
 
+// mccl launches kernels synchronously from the calling host thread. Preserve
+// the active API name so mcLaunchKernel timings and HANG reports identify the
+// collective instead of only exposing an opaque kernel address.
+thread_local const char* active_collective = nullptr;
+thread_local uint64_t active_collective_bytes = 0;
+
 // Resolve an mccl symbol. torch dlopen()s libmccl.so lazily, so it is NOT in
 // the RTLD_NEXT search order when our preloaded interposer first runs --
 // dlsym(RTLD_NEXT, "mcclAllReduce") returns NULL and calling it segfaults.
@@ -520,9 +526,15 @@ EXPOSE_API mcError_t mcLaunchKernel(const void* func, dim3 g, dim3 b,
   if ((++n % cfg().launch_sample) != 0) return orig(func, g, b, args, shmem, s);
 
   TimedOp* op = m.acquire();
-  op->name = resolve_kernel_name(func);
-  op->type = "kernel";
-  op->problem_size = 0;
+  if (active_collective) {
+    op->name = std::string("coll_kernel:") + active_collective;
+    op->type = "collective";
+    op->problem_size = active_collective_bytes;
+  } else {
+    op->name = resolve_kernel_name(func);
+    op->type = "kernel";
+    op->problem_size = 0;
+  }
   m.record_start(op, s);
   mcError_t rc = orig(func, g, b, args, shmem, s);
   m.record_stop_and_enqueue(op, s);
@@ -543,6 +555,15 @@ static inline uint64_t dtype_bytes(mcclDataType_t dt) {
   }
 }
 
+static inline int comm_size(mcclComm_t comm) {
+  typedef mcclResult_t (*mcclCommCount_t)(const mcclComm_t, int*);
+  static mcclCommCount_t fn =
+      (mcclCommCount_t)resolve_mccl("mcclCommCount");
+  int nranks = 0;
+  if (fn && comm && fn(comm, &nranks) == 0) return nranks;
+  return 0;
+}
+
 // Metadata-only collective hook. NO mcEvent bracketing on the mccl stream (that
 // crashes during comm bootstrap). We record invocation count + bytes; the coll
 // *kernel* latency is captured by the mcLaunchKernel hook. `stream` is unused
@@ -560,7 +581,13 @@ static inline uint64_t dtype_bytes(mcclDataType_t dt) {
     Manager& _m = Manager::get();                     \
     _m.ensure_started();                              \
     if (_m.enabled()) _m.record_coll_meta(NAME, psize); \
+    const char* _previous_coll = active_collective;    \
+    uint64_t _previous_bytes = active_collective_bytes; \
+    active_collective = NAME;                         \
+    active_collective_bytes = psize;                  \
     mcclResult_t _rc = (EXPR);                        \
+    active_collective = _previous_coll;               \
+    active_collective_bytes = _previous_bytes;        \
     COLL_DBG2(NAME);                                  \
     return _rc;                                       \
   } while (0)
@@ -578,6 +605,15 @@ EXPOSE_API mcclResult_t mcclAllReduce(const void* s, void* r, size_t count,
   COLL_META("mcclAllReduce", orig(s, r, count, dt, op, comm, stream));
 }
 
+EXPOSE_API mcclResult_t mcclAllReduceExt(
+    const void* s, void* r, size_t count, mcclDataType_t dt, mcclRedOp_t op,
+    mcclComm_t comm, mcStream_t stream) {
+  static mcclAllReduce_t orig =
+      (mcclAllReduce_t)resolve_mccl("mcclAllReduceExt");
+  uint64_t psize = count * dtype_bytes(dt);
+  COLL_META("mcclAllReduceExt", orig(s, r, count, dt, op, comm, stream));
+}
+
 typedef mcclResult_t (*mcclAllGather_t)(const void*, void*, size_t,
                                         mcclDataType_t, mcclComm_t, mcStream_t);
 EXPOSE_API mcclResult_t mcclAllGather(const void* s, void* r, size_t sendcount,
@@ -587,6 +623,15 @@ EXPOSE_API mcclResult_t mcclAllGather(const void* s, void* r, size_t sendcount,
       (mcclAllGather_t)resolve_mccl("mcclAllGather");
   uint64_t psize = sendcount * dtype_bytes(dt);
   COLL_META("mcclAllGather", orig(s, r, sendcount, dt, comm, stream));
+}
+
+EXPOSE_API mcclResult_t mcclAllGatherExt(const void* s, void* r,
+                                         size_t sendcount, mcclDataType_t dt,
+                                         mcclComm_t comm, mcStream_t stream) {
+  static mcclAllGather_t orig =
+      (mcclAllGather_t)resolve_mccl("mcclAllGatherExt");
+  uint64_t psize = sendcount * dtype_bytes(dt);
+  COLL_META("mcclAllGatherExt", orig(s, r, sendcount, dt, comm, stream));
 }
 
 typedef mcclResult_t (*mcclReduceScatter_t)(const void*, void*, size_t,
@@ -600,6 +645,26 @@ EXPOSE_API mcclResult_t mcclReduceScatter(const void* s, void* r,
       (mcclReduceScatter_t)resolve_mccl("mcclReduceScatter");
   uint64_t psize = recvcount * dtype_bytes(dt);
   COLL_META("mcclReduceScatter", orig(s, r, recvcount, dt, op, comm, stream));
+}
+
+EXPOSE_API mcclResult_t mcclReduceScatterExt(
+    const void* s, void* r, size_t recvcount, mcclDataType_t dt,
+    mcclRedOp_t op, mcclComm_t comm, mcStream_t stream) {
+  static mcclReduceScatter_t orig =
+      (mcclReduceScatter_t)resolve_mccl("mcclReduceScatterExt");
+  uint64_t psize = recvcount * dtype_bytes(dt);
+  COLL_META("mcclReduceScatterExt",
+            orig(s, r, recvcount, dt, op, comm, stream));
+}
+
+typedef mcclResult_t (*mcclBcast_t)(void*, size_t, mcclDataType_t, int,
+                                    mcclComm_t, mcStream_t);
+EXPOSE_API mcclResult_t mcclBcast(void* buff, size_t count,
+                                  mcclDataType_t dt, int root,
+                                  mcclComm_t comm, mcStream_t stream) {
+  static mcclBcast_t orig = (mcclBcast_t)resolve_mccl("mcclBcast");
+  uint64_t psize = count * dtype_bytes(dt);
+  COLL_META("mcclBcast", orig(buff, count, dt, root, comm, stream));
 }
 
 typedef mcclResult_t (*mcclBroadcast_t)(const void*, void*, size_t,
@@ -633,6 +698,14 @@ EXPOSE_API mcclResult_t mcclSend(const void* s, size_t count, mcclDataType_t dt,
   COLL_META("mcclSend", orig(s, count, dt, peer, comm, stream));
 }
 
+EXPOSE_API mcclResult_t mcclSendExt(const void* s, size_t count,
+                                    mcclDataType_t dt, int peer,
+                                    mcclComm_t comm, mcStream_t stream) {
+  static mcclSend_t orig = (mcclSend_t)resolve_mccl("mcclSendExt");
+  uint64_t psize = count * dtype_bytes(dt);
+  COLL_META("mcclSendExt", orig(s, count, dt, peer, comm, stream));
+}
+
 typedef mcclResult_t (*mcclRecv_t)(void*, size_t, mcclDataType_t, int,
                                    mcclComm_t, mcStream_t);
 EXPOSE_API mcclResult_t mcclRecv(void* r, size_t count, mcclDataType_t dt,
@@ -640,6 +713,69 @@ EXPOSE_API mcclResult_t mcclRecv(void* r, size_t count, mcclDataType_t dt,
   static mcclRecv_t orig = (mcclRecv_t)resolve_mccl("mcclRecv");
   uint64_t psize = count * dtype_bytes(dt);
   COLL_META("mcclRecv", orig(r, count, dt, peer, comm, stream));
+}
+
+EXPOSE_API mcclResult_t mcclRecvExt(void* r, size_t count, mcclDataType_t dt,
+                                    int peer, mcclComm_t comm,
+                                    mcStream_t stream) {
+  static mcclRecv_t orig = (mcclRecv_t)resolve_mccl("mcclRecvExt");
+  uint64_t psize = count * dtype_bytes(dt);
+  COLL_META("mcclRecvExt", orig(r, count, dt, peer, comm, stream));
+}
+
+typedef mcclResult_t (*mcclAllToAll_t)(const void*, void*, size_t,
+                                       mcclDataType_t, mcclComm_t, mcStream_t);
+EXPOSE_API mcclResult_t mcclAllToAll(const void* s, void* r, size_t count,
+                                     mcclDataType_t dt, mcclComm_t comm,
+                                     mcStream_t stream) {
+  static mcclAllToAll_t orig =
+      (mcclAllToAll_t)resolve_mccl("mcclAllToAll");
+  uint64_t psize = count * dtype_bytes(dt) * (uint64_t)comm_size(comm);
+  COLL_META("mcclAllToAll", orig(s, r, count, dt, comm, stream));
+}
+
+EXPOSE_API mcclResult_t mcclAllToAllExt(const void* s, void* r, size_t count,
+                                        mcclDataType_t dt, mcclComm_t comm,
+                                        mcStream_t stream) {
+  static mcclAllToAll_t orig =
+      (mcclAllToAll_t)resolve_mccl("mcclAllToAllExt");
+  uint64_t psize = count * dtype_bytes(dt) * (uint64_t)comm_size(comm);
+  COLL_META("mcclAllToAllExt", orig(s, r, count, dt, comm, stream));
+}
+
+typedef mcclResult_t (*mcclAllToAllv_t)(
+    const void*, const size_t[], const size_t[], void*, const size_t[],
+    const size_t[], mcclDataType_t, mcclComm_t, mcStream_t);
+static inline uint64_t alltoallv_bytes(const size_t* sendcounts,
+                                       mcclDataType_t dt, mcclComm_t comm) {
+  uint64_t count = 0;
+  int nranks = comm_size(comm);
+  for (int i = 0; sendcounts && i < nranks; ++i) count += sendcounts[i];
+  return count * dtype_bytes(dt);
+}
+
+EXPOSE_API mcclResult_t mcclAllToAllv(
+    const void* s, const size_t sendcounts[], const size_t sdispls[], void* r,
+    const size_t recvcounts[], const size_t rdispls[], mcclDataType_t dt,
+    mcclComm_t comm, mcStream_t stream) {
+  static mcclAllToAllv_t orig =
+      (mcclAllToAllv_t)resolve_mccl("mcclAllToAllv");
+  uint64_t psize = alltoallv_bytes(sendcounts, dt, comm);
+  COLL_META("mcclAllToAllv",
+            orig(s, sendcounts, sdispls, r, recvcounts, rdispls, dt, comm,
+                 stream));
+}
+
+EXPOSE_API mcclResult_t mcclAllToAllvExt(
+    const void* s, const size_t sendcounts[], const size_t sdispls[], void* r,
+    const size_t recvcounts[], const size_t rdispls[], mcclDataType_t dt,
+    mcclComm_t comm, mcStream_t stream) {
+  static mcclAllToAllv_t orig =
+      (mcclAllToAllv_t)resolve_mccl("mcclAllToAllvExt");
+  uint64_t psize = alltoallv_bytes(sendcounts, dt, comm);
+  COLL_META("mcclAllToAllvExt",
+            orig(s, sendcounts, sdispls, r, recvcounts, rdispls, dt, comm,
+                 stream));
 }
 #endif  // METAX_NO_COLL
 
